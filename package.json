@@ -1,0 +1,17 @@
+{
+  "name": "tiendas-backend",
+  "version": "1.0.0",
+  "description": "",
+  "main": "source/index.js",
+  "scripts": {
+    "test": "vitest"
+  },
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "fastify": "^3.29.0"
+  },
+  "devDependencies": {
+    "vitest": "^0.12.9"
+  }
+}
