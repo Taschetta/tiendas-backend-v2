@@ -5,7 +5,8 @@ export const connection = {
 }
 
 export const mysql2 = {
-  createConnection: vi.fn(() => connection)
+  createConnection: vi.fn(() => connection),
+  createPool: vi.fn(() => connection)
 }
 
 export const bcrypt = {

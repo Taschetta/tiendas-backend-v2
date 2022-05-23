@@ -2,14 +2,21 @@
   "name": "tiendas-backend",
   "version": "1.0.0",
   "description": "",
-  "main": "source/index.js",
+  "main": "source/server.js",
+  "type": "module",
   "scripts": {
+    "start": "nodemon -r dotenv/config source/server.js",
     "test": "vitest"
   },
   "author": "",
   "license": "ISC",
   "dependencies": {
-    "fastify": "^3.29.0"
+    "bcrypt": "^5.0.1",
+    "dotenv": "^16.0.1",
+    "fastify": "^3.29.0",
+    "jsonwebtoken": "^8.5.1",
+    "mysql2": "^2.3.3",
+    "nodemon": "^2.0.16"
   },
   "devDependencies": {
     "vitest": "^0.12.9"

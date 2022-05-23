@@ -21,16 +21,15 @@ describe("/session", () => {
     process.env.JWT_SECRET = JWT_SECRET
 
     date = new Date(Date.now())
+    vi.setSystemTime(date)
 
-    // vi.useFakeTimers()
-    // vi.setSystemTime(date)
-    
     app = await useApp(packages)
   })
 
   beforeEach(() => {
     user = {
       id: 1,
+      active: true,
       roleId: 2,
       email: 'test@mail',
       password: '1234'
@@ -48,7 +47,9 @@ describe("/session", () => {
     accessToken = 'JWT.ACCESS.TOKEN'
     refreshToken = 'JWT.REFRESH.TOKEN'
     
-    packages.connection.query.mockReturnValueOnce([[user],[]])
+    packages.connection.query.mockReturnValue([[user],[]])
+    
+    packages.bcrypt.compare.mockReturnValue(true)
     
     packages.jwt.sign.mockReturnValueOnce(accessToken)
     packages.jwt.sign.mockReturnValueOnce(refreshToken)
@@ -59,6 +60,11 @@ describe("/session", () => {
     it("finds the user by its email from the database", async () => {
       await app.inject(request)
       expect(packages.connection.query).toHaveBeenNthCalledWith(1, 'select id, roleId, active, password from user where email = ? limit 1', [request.body.email])
+    })
+
+    it("validates the password with the bcrypt module", async () => {
+      await app.inject(request)
+      expect(packages.bcrypt.compare).toHaveBeenCalledWith(request.body.password, user.password)
     })
     
     it("generates the tokens from the jwt package", async () => {
@@ -80,6 +86,45 @@ describe("/session", () => {
         refreshToken,
         expiresIn: JWT_EXPIRATION_ACCESS,
       })
+    })
+    
+    describe("if the user is not found", () => {
+      
+      it("return a 404 status code with an error message", async () => {
+        packages.connection.query.mockReturnValue([[],[]])
+        const response = await app.inject(request)
+        expect(response.statusCode).toBe(404)
+        expect(JSON.parse(response.body)).toEqual({
+          message: 'No pudimos encontrar tu cuenta. ¿El email que ingresaste es el correcto?'
+        })
+      })
+      
+    })
+
+    describe("if the user is not active", () => {
+      
+      it("returns a 403 response with an error message", async () => {
+        user.active = false
+        const response = await app.inject(request)
+        expect(response.statusCode).toBe(403)
+        expect(JSON.parse(response.body)).toEqual({
+          message: 'Lo sentimos, tu cuenta se encuentra inactiva. Contactate con un administrador para poder acceder.'
+        })
+      })
+      
+    })
+
+    describe("if the passwords do not match", () => {
+      
+      it("returns a 403 response with an error message", async () => {
+        packages.bcrypt.compare.mockReturnValue(false)
+        const response = await app.inject(request)
+        expect(response.statusCode).toBe(403)
+        expect(JSON.parse(response.body)).toEqual({
+          message: 'La contraseña que ingresaste es incorrecta.'
+        })
+      })
+      
     })
     
   })
