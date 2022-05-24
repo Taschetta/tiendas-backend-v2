@@ -6,7 +6,7 @@ const JWT_EXPIRATION_ACCESS = 1200
 const JWT_EXPIRATION_REFRESH = 60000
 const JWT_SECRET = 'secret'
 
-describe("/sessions", () => {
+describe("/session", () => {
   let app
 
   let date
@@ -39,31 +39,32 @@ describe("/sessions", () => {
       password: '1234'
     }
 
-    accessToken = 'JWT.ACCESS.TOKEN'
-    accessTokenPayload = { userId: 1, roleId: 2, type: 'access' }
-
     refreshToken = 'JWT.REFRESH.TOKEN'
     refreshTokenPayload = { userId: 1, roleId: 2, type: 'refresh' }
+
+    accessToken = 'JWT.ACCESS.TOKEN'
+    accessTokenPayload = { userId: 1, roleId: 2, sessionId: 10, type: 'access' }
   })
   
-  describe("POST /sessions { email, password }", () => {
+  describe("POST /session { email, password }", () => {
 
     beforeEach(() => {
       request = { 
         method: 'POST', 
-        url: '/sessions', 
+        url: '/session', 
         body: { 
           email: user.email, 
           password: user.password, 
         } 
       }
       
-      packages.connection.query.mockReturnValue([[user],[]])
+      packages.connection.query.mockReturnValueOnce([[user],[]])
+      packages.connection.query.mockReturnValueOnce([{ insertId: 10 },[]])
       
       packages.bcrypt.compare.mockReturnValue(true)
       
-      packages.jwt.sign.mockReturnValueOnce(accessToken)
       packages.jwt.sign.mockReturnValueOnce(refreshToken)
+      packages.jwt.sign.mockReturnValueOnce(accessToken)
     })
     
     it("finds the user by its email from the database", async () => {
@@ -76,15 +77,19 @@ describe("/sessions", () => {
       expect(packages.bcrypt.compare).toHaveBeenCalledWith(request.body.password, user.password)
     })
     
-    it("generates the tokens from the jwt package", async () => {
+    it("generates the refresh token", async () => {
       await app.inject(request)
-      expect(packages.jwt.sign).toHaveBeenNthCalledWith(1, { userId: 1, roleId: 2, type: 'access' }, JWT_SECRET, { expiresIn: JWT_EXPIRATION_ACCESS })
-      expect(packages.jwt.sign).toHaveBeenNthCalledWith(2, { userId: 1, roleId: 2, type: 'refresh' }, JWT_SECRET, { expiresIn: JWT_EXPIRATION_REFRESH })
+      expect(packages.jwt.sign).toHaveBeenNthCalledWith(1, refreshTokenPayload, JWT_SECRET, { expiresIn: JWT_EXPIRATION_REFRESH })
     })
 
     it("stores the tokens on the database", async () => {
       await app.inject(request)
       expect(packages.connection.query).toHaveBeenNthCalledWith(2, 'insert into session (userId, refreshToken, createdAt, updatedAt) values (?)', [[user.id, refreshToken, date, date]])
+    })
+
+    it("generates the acces token", async () => {
+      await app.inject(request)
+      expect(packages.jwt.sign).toHaveBeenNthCalledWith(2, accessTokenPayload, JWT_SECRET, { expiresIn: JWT_EXPIRATION_ACCESS })
     })
     
     it("returns a 200 status code, an access token, a refresh token, and an expiration time", async () => {
@@ -100,6 +105,7 @@ describe("/sessions", () => {
     describe("if the user is not found", () => {
       
       it("return a 404 status code with an error message", async () => {
+        packages.connection.query.mockReset()
         packages.connection.query.mockReturnValue([[],[]])
         const response = await app.inject(request)
         expect(response.statusCode).toBe(404)
@@ -138,12 +144,12 @@ describe("/sessions", () => {
     
   })
 
-  describe("DELETE /sessions", () => {
+  describe("DELETE /session", () => {
 
     beforeEach(() => {
       request = { 
         method: 'DELETE', 
-        url: '/sessions',
+        url: '/session',
         headers: {
           'Authorization': `Bearer ${accessToken}`
         }
@@ -153,14 +159,14 @@ describe("/sessions", () => {
       packages.connection.query.mockReturnValue([{ affectedRows: 5 }, []])
     })
 
-    it("gets the user from the access token", async () => {
+    it("gets the sessionId from the access token", async () => {
       await app.inject(request)
       expect(packages.jwt.verify).toHaveBeenCalledWith(accessToken, JWT_SECRET)
     })
 
-    it("deletes the user's sessions from the database", async () => {
+    it("deletes the session from the database", async () => {
       await app.inject(request)
-      expect(packages.connection.query).toHaveBeenCalledWith('update session set removedAt = now() where removedAt is null and userId = ?', [user.id])
+      expect(packages.connection.query).toHaveBeenCalledWith('update session set removedAt = now() where removedAt is null and sessionId = ?', [accessTokenPayload.sessionId])
     })
     
     it("returns the number of rows removed", async () => {

@@ -13,7 +13,7 @@ export default async function useApp(packages, options) {
   
   const app = fastify(options)
 
-  app.post('/sessions', async (request, response) => {
+  app.post('/session', async (request, response) => {
     const EXPIRATION_ACCESS = parseInt(process.env.JWT_EXPIRATION_ACCESS)
     const EXPIRATION_REFRESH = parseInt(process.env.JWT_EXPIRATION_REFRESH)
     const SECRET = process.env.JWT_SECRET
@@ -40,14 +40,15 @@ export default async function useApp(packages, options) {
     const userId = user.id
     const roleId = user.roleId
     
-    const accessToken = jwt.sign({ userId, roleId, type: 'access' }, SECRET, { expiresIn: EXPIRATION_ACCESS })
     const refreshToken = jwt.sign({ userId, roleId, type: 'refresh' }, SECRET, { expiresIn: EXPIRATION_REFRESH })
 
     const date = new Date(Date.now())
     
-    await database.query('insert into session (userId, refreshToken, createdAt, updatedAt) values (?)', [
+    const sessionId = (await database.query('insert into session (userId, refreshToken, createdAt, updatedAt) values (?)', [
       [userId, refreshToken, date, date]
-    ])
+    ]))[0]['insertId']
+
+    const accessToken = jwt.sign({ userId, roleId, sessionId, type: 'access' }, SECRET, { expiresIn: EXPIRATION_ACCESS })
     
     return {
       accessToken,
@@ -56,7 +57,7 @@ export default async function useApp(packages, options) {
     }
   })
 
-  app.delete('/sessions', async (request, response) => {
+  app.delete('/session', async (request, response) => {
     const SECRET = process.env.JWT_SECRET
 
     const authorization = request.headers.authorization
@@ -79,7 +80,7 @@ export default async function useApp(packages, options) {
       return
     }
     
-    const result = (await database.query('update session set removedAt = now() where removedAt is null and userId = ?', [payload.userId]))[0]
+    const result = (await database.query('update session set removedAt = now() where removedAt is null and sessionId = ?', [payload.sessionId]))[0]
     
     return {
       removed: result.affectedRows
