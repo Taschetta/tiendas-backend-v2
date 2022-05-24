@@ -13,7 +13,7 @@ export default async function useApp(packages, options) {
   
   const app = fastify(options)
 
-  app.post('/session', async (request, response) => {
+  app.post('/sessions', async (request, response) => {
     const EXPIRATION_ACCESS = parseInt(process.env.JWT_EXPIRATION_ACCESS)
     const EXPIRATION_REFRESH = parseInt(process.env.JWT_EXPIRATION_REFRESH)
     const SECRET = process.env.JWT_SECRET
@@ -53,6 +53,36 @@ export default async function useApp(packages, options) {
       accessToken,
       refreshToken,
       expiresIn: EXPIRATION_ACCESS,
+    }
+  })
+
+  app.delete('/sessions', async (request, response) => {
+    const SECRET = process.env.JWT_SECRET
+
+    const authorization = request.headers.authorization
+
+    if(!authorization) {
+      response.status(403).send({ message: 'No tenes permiso para acceder a este recurso.' })
+    }
+    
+    const accessTokenParts = authorization.split(' ')
+
+    if(accessTokenParts.length !== 2 || accessTokenParts[0] !== 'Bearer') {
+      response.status(403).send({ message: 'No tenes permiso para acceder a este recurso.' })
+    }
+    
+    let payload
+    try {
+      payload = jwt.verify(accessTokenParts[1], SECRET)      
+    } catch (error) {
+      response.status(403).send({ message: 'No tenes permiso para acceder a este recurso.' })
+      return
+    }
+    
+    const result = (await database.query('update session set removedAt = now() where removedAt is null and userId = ?', [payload.userId]))[0]
+    
+    return {
+      removed: result.affectedRows
     }
   })
 

@@ -1,5 +1,5 @@
 {
-  "name": "tiendas-backend",
+  "name": "tienda-cluster-backend",
   "version": "1.0.0",
   "description": "",
   "main": "source/server.js",

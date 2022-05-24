@@ -16,6 +16,7 @@ CREATE TABLE tienda_cluster.user (
   password VARCHAR(255) NOT NULL,
   createdAt DATETIME NOT NULL,
   updatedAt DATETIME NOT NULL,
+  deletedAt DATETIME NOT NULL,
   PRIMARY KEY (id),
   FOREIGN KEY (roleId) REFERENCES role (id)
 );
@@ -26,6 +27,7 @@ CREATE TABLE tienda_cluster.session (
   refreshToken VARCHAR(255) NOT NULL, 
   createdAt DATETIME NOT NULL,
   updatedAt DATETIME NOT NULL,
+  deletedAt DATETIME NOT NULL,
   PRIMARY KEY (id),
   FOREIGN KEY (userId) REFERENCES user (id)
 );
