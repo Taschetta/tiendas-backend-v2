@@ -19,6 +19,12 @@ describe("/session", () => {
   let refreshToken
   let refreshTokenPayload
 
+  let newAccessToken
+  let newAccessTokenPayload
+  
+  let newRefreshToken
+  let newRefreshTokenPayload
+
   beforeAll(async () => {
     process.env.JWT_EXPIRATION_ACCESS = JWT_EXPIRATION_ACCESS
     process.env.JWT_EXPIRATION_REFRESH = JWT_EXPIRATION_REFRESH
@@ -44,6 +50,12 @@ describe("/session", () => {
 
     accessToken = 'JWT.ACCESS.TOKEN'
     accessTokenPayload = { userId: 1, roleId: 2, sessionId: 10, type: 'access' }
+
+    newRefreshToken = 'NEW.REFRESH.TOKEN'
+    newRefreshTokenPayload = { userId: 1, roleId: 2, type: 'refresh' }
+
+    newAccessToken = 'NEW.ACCESS.TOKEN'
+    newAccessTokenPayload = { userId: 1, roleId: 2, sessionId: 10, type: 'access' }
   })
   
   describe("POST /session { email, password }", () => {
@@ -58,11 +70,13 @@ describe("/session", () => {
         } 
       }
       
+      packages.connection.query.mockReset()
       packages.connection.query.mockReturnValueOnce([[user],[]])
       packages.connection.query.mockReturnValueOnce([{ insertId: 10 },[]])
       
       packages.bcrypt.compare.mockReturnValue(true)
       
+      packages.jwt.sign.mockReset()
       packages.jwt.sign.mockReturnValueOnce(refreshToken)
       packages.jwt.sign.mockReturnValueOnce(accessToken)
     })
@@ -104,14 +118,12 @@ describe("/session", () => {
     
     describe("if the user is not found", () => {
       
-      it("return a 404 status code with an error message", async () => {
+      it("return a 401 status code with an error message", async () => {
         packages.connection.query.mockReset()
         packages.connection.query.mockReturnValue([[],[]])
-        const response = await app.inject(request)
-        expect(response.statusCode).toBe(404)
-        expect(response.json()).toEqual({
-          message: 'No pudimos encontrar tu cuenta. ¿El email que ingresaste es el correcto?'
-        })
+        const result = await app.inject(request)
+        expect(result.statusCode).toEqual(401)
+        expect(result.json()).toEqual({ message: 'No pudimos encontrar tu cuenta. ¿El email que ingresaste es el correcto?' })
       })
       
     })
@@ -121,10 +133,8 @@ describe("/session", () => {
       it("returns a 403 response with an error message", async () => {
         user.active = false
         const response = await app.inject(request)
-        expect(response.statusCode).toBe(403)
-        expect(response.json()).toEqual({
-          message: 'Lo sentimos, tu cuenta se encuentra inactiva. Contactate con un administrador para poder acceder.'
-        })
+        expect(response.statusCode).toEqual(401)
+        expect(response.json()).toEqual({ message: 'Lo sentimos, tu cuenta se encuentra inactiva. Contactate con un administrador para poder acceder.' })
       })
       
     })
@@ -134,14 +144,104 @@ describe("/session", () => {
       it("returns a 403 response with an error message", async () => {
         packages.bcrypt.compare.mockReturnValue(false)
         const response = await app.inject(request)
-        expect(response.statusCode).toBe(403)
-        expect(response.json()).toEqual({
-          message: 'La contraseña que ingresaste es incorrecta.'
-        })
+        expect(response.statusCode).toEqual(401)
+        expect(response.json()).toEqual({ message: 'La contraseña que ingresaste es incorrecta.' })
       })
       
     })
     
+  })
+
+  describe("PUT /session", () => {
+
+    beforeEach(() => {
+      request = {
+        method: 'PUT',
+        url: '/session',
+        headers: {
+          'Authorization': `Bearer ${refreshToken}`
+        }
+      }
+
+      packages.connection.query.mockReset()
+      packages.connection.query.mockReturnValueOnce([[{ id: accessTokenPayload.sessionId }],[]])
+      // packages.connection.query.mockReturnValueOnce([{ up},[]])
+
+      packages.jwt.verify.mockReset()
+      packages.jwt.verify.mockReturnValueOnce(refreshTokenPayload)
+
+      packages.jwt.sign.mockReset()
+      packages.jwt.sign.mockReturnValueOnce(newRefreshToken)
+      packages.jwt.sign.mockReturnValueOnce(newAccessToken)
+    })
+
+    it("checks the authorization", async () => {
+      await app.inject(request)
+      expect(packages.jwt.verify).toHaveBeenCalled(refreshToken, JWT_SECRET)
+    })
+
+    it("finds the session by the refreshToken", async () => {
+      await app.inject(request)
+      expect(packages.connection.query).toHaveBeenNthCalledWith(1, 'select id from session where refreshToken = ?', [refreshToken])
+    })
+
+    it("generates a new refresh and access token", async () => {
+      await app.inject(request)
+      expect(packages.jwt.sign).toHaveBeenNthCalledWith(1, newRefreshTokenPayload, JWT_SECRET, { expiresIn: JWT_EXPIRATION_REFRESH })
+      expect(packages.jwt.sign).toHaveBeenNthCalledWith(2, newAccessTokenPayload, JWT_SECRET, { expiresIn: JWT_EXPIRATION_ACCESS })
+    })
+
+    it("updates the session with the new access token", async () => {
+      await app.inject(request)
+      expect(packages.connection.query).toHaveBeenNthCalledWith(2, 'update session set refreshToken = ? where refreshToken = ?', [
+        newRefreshToken,
+        refreshToken,
+      ])
+    })
+
+    it("returns the new tokens", async () => {
+      const result = await app.inject(request)
+      expect(result.json()).toEqual({
+        accessToken: newAccessToken,
+        refreshToken: newRefreshToken,
+      })
+    })
+
+    describe("if no authorization header is set", () => {
+
+      it("throws a 401 error", async () => {
+        delete request.headers.Authorization
+        const result = await app.inject(request)
+        expect(result.statusCode).toEqual(401)
+        expect(result.json()).toEqual({ message: 'No podes acceder a este recurso. Tus credenciales son invalidas' })
+      })
+      
+    })
+
+    describe("if the token is invalid", () => {
+      
+      it("throws a 403 error", async () => {
+        packages.jwt.verify.mockReset()
+        packages.jwt.verify.mockImplementation(() => {throw new Error()})
+        const result = await app.inject(request)
+        expect(result.statusCode).toEqual(401)
+        expect(result.json()).toEqual({ message: 'No podes acceder a este recurso. Tus credenciales son invalidas' })
+      })
+      
+    })
+
+    describe("if the token does not match the token on the database", () => {
+      
+      it("throws a 403 error", async () => {
+        packages.connection.query.mockReset()
+        packages.connection.query.mockReturnValue([[],[]])
+        const result = await app.inject(request)
+        expect(result.statusCode).toEqual(401)
+        expect(result.json()).toEqual({ message: 'No podes acceder a este recurso. Tus credenciales son invalidas' })
+      })
+      
+    })
+
   })
 
   describe("DELETE /session", () => {
@@ -174,35 +274,47 @@ describe("/session", () => {
       expect(result.json()).toEqual({ removed: 5 })
     })
 
-    describe("if the access token is invalid", () => {
-      
-      it("returns 403 and an error message", async () => {
-        packages.jwt.verify.mockImplementation(new Error())
-        const result = await app.inject(request)
-        expect(result.statusCode).toEqual(403)
-        expect(result.json()).toEqual({ message: 'No tenes permiso para acceder a este recurso.' })
-      })
-      
-    })
-
     describe("if the request has no access header", () => {
       
-      it("returns 403 and an error message", async () => {
+      it("returns 401 and an error message", async () => {
         delete request.headers.Authorization
         const result = await app.inject(request)
-        expect(result.statusCode).toEqual(403)
-        expect(result.json()).toEqual({ message: 'No tenes permiso para acceder a este recurso.' })
+        expect(result.statusCode).toEqual(401)
+        expect(result.json()).toEqual({ message: 'No podes acceder a este recurso. Tus credenciales son invalidas' })
       })
       
     })
 
     describe("if the access header is malformed", () => {
       
-      it("returns 403 and an error message", async () => {
+      it("returns 401 and an error message", async () => {
         request.headers.Authorization = `Invalid ${accessToken}`
         const result = await app.inject(request)
-        expect(result.statusCode).toEqual(403)
-        expect(result.json()).toEqual({ message: 'No tenes permiso para acceder a este recurso.' })
+        expect(result.statusCode).toEqual(401)
+        expect(result.json()).toEqual({ message: 'No podes acceder a este recurso. Tus credenciales son invalidas' })
+      })
+      
+    })
+
+    describe("if the access token is invalid", () => {
+      
+      it("returns 401 and an error message", async () => {
+        packages.jwt.verify.mockImplementation(new Error())
+        const result = await app.inject(request)
+        expect(result.statusCode).toEqual(401)
+        expect(result.json()).toEqual({ message: 'No podes acceder a este recurso. Tus credenciales son invalidas' })
+      })
+      
+    })
+
+    describe("if the access token is a refresh token", () => {
+
+      it("returns 401 and an error message", async () => {
+        packages.jwt.verify.mockReset()
+        packages.jwt.verify.mockReturnValue(refreshTokenPayload)
+        const result = await app.inject(request)
+        expect(result.statusCode).toEqual(401)
+        expect(result.json()).toEqual({ message: 'No podes acceder a este recurso. Tus credenciales son invalidas' })
       })
       
     })
